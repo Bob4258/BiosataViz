@@ -13,3 +13,14 @@ Module 01 focuses on deterministic CSV/XLSX loading with explicit validation and
 ## License
 
 MIT
+
+## Module 01: table loading
+
+```python
+from biostatviz.io import load_table
+
+loaded = load_table("examples/data/two_group_gfp.csv")
+print(loaded.data)
+```
+
+Supported formats in v0.1 are CSV (`.csv`) and Excel (`.xlsx`). BioStatViz raises typed errors for missing files, unsupported formats, unreadable files, and missing Excel sheets instead of silently falling back to another interpretation.
