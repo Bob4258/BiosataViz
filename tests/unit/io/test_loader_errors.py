@@ -44,3 +44,26 @@ def test_csv_rejects_excel_sheet_argument(tmp_path: Path):
     csv_path.write_text("a,b\n1,2\n", encoding="utf-8")
     with pytest.raises(TableReadError, match="sheet_name is only valid"):
         load_table(csv_path, sheet_name="Sheet1")
+
+
+from biostatviz.io import ExcelSheetNotFoundError
+
+
+def test_xlsx_rejects_missing_sheet(tmp_path: Path):
+    xlsx_path = tmp_path / "experiment.xlsx"
+    pd.DataFrame({"a": [1]}).to_excel(
+        xlsx_path,
+        sheet_name="Data",
+        index=False,
+        engine="openpyxl",
+    )
+
+    with pytest.raises(ExcelSheetNotFoundError, match="Excel sheet not found"):
+        load_table(xlsx_path, sheet_name="Missing")
+
+
+def test_xlsx_wraps_corrupt_file_as_table_read_error(tmp_path: Path):
+    xlsx_path = tmp_path / "broken.xlsx"
+    xlsx_path.write_bytes(b"this is not an xlsx archive")
+    with pytest.raises(TableReadError, match="Failed to read XLSX"):
+        load_table(xlsx_path)

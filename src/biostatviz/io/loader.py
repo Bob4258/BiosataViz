@@ -4,7 +4,12 @@ from pathlib import Path
 
 import pandas as pd
 
-from .errors import TableNotFoundError, TableReadError, UnsupportedTableFormatError
+from .errors import (
+    ExcelSheetNotFoundError,
+    TableNotFoundError,
+    TableReadError,
+    UnsupportedTableFormatError,
+)
 from .models import LoadedTable
 
 SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
@@ -29,7 +34,29 @@ def load_table(
         )
 
     if suffix == ".xlsx":
-        raise NotImplementedError("XLSX loading is implemented in the next task.")
+        requested_sheet = 0 if sheet_name is None else sheet_name
+        try:
+            data = pd.read_excel(
+                source_path,
+                sheet_name=requested_sheet,
+                engine="openpyxl",
+            )
+        except ValueError as exc:
+            message = str(exc)
+            if "Worksheet" in message or "sheet" in message.lower():
+                raise ExcelSheetNotFoundError(
+                    f"Excel sheet not found: {requested_sheet!r} in {source_path}"
+                ) from exc
+            raise TableReadError(f"Failed to read XLSX file: {source_path}") from exc
+        except Exception as exc:
+            raise TableReadError(f"Failed to read XLSX file: {source_path}") from exc
+
+        return LoadedTable(
+            data=data,
+            source_path=source_path,
+            source_format="xlsx",
+            sheet_name=requested_sheet,
+        )
 
     if sheet_name is not None:
         raise TableReadError("sheet_name is only valid for .xlsx files.")
