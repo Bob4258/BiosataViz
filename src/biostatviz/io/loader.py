@@ -10,7 +10,7 @@ from .errors import (
     TableReadError,
     UnsupportedTableFormatError,
 )
-from .models import LoadedTable
+from .models import LoadedTable, LoadingOptions
 
 SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
 
@@ -18,6 +18,8 @@ SUPPORTED_SUFFIXES = {".csv", ".xlsx"}
 def load_table(
     path: str | Path,
     sheet_name: str | int | None = None,
+    *,
+    options: LoadingOptions | None = None,
 ) -> LoadedTable:
     """Load a supported tabular file without silently transforming its contents."""
 
@@ -33,12 +35,21 @@ def load_table(
             "Supported formats are .csv and .xlsx."
         )
 
+    if options is not None and sheet_name is not None:
+        raise TableReadError(
+            "Pass Excel sheet selection either with sheet_name or LoadingOptions, not both."
+        )
+
+    resolved = options or LoadingOptions(sheet_name=sheet_name)
+
     if suffix == ".xlsx":
-        requested_sheet = 0 if sheet_name is None else sheet_name
+        requested_sheet = 0 if resolved.sheet_name is None else resolved.sheet_name
         try:
             data = pd.read_excel(
                 source_path,
                 sheet_name=requested_sheet,
+                header=resolved.header,
+                keep_default_na=resolved.keep_default_na,
                 engine="openpyxl",
             )
         except ValueError as exc:
@@ -58,11 +69,17 @@ def load_table(
             sheet_name=requested_sheet,
         )
 
-    if sheet_name is not None:
+    if resolved.sheet_name is not None:
         raise TableReadError("sheet_name is only valid for .xlsx files.")
 
     try:
-        data = pd.read_csv(source_path)
+        data = pd.read_csv(
+            source_path,
+            sep=resolved.delimiter,
+            encoding=resolved.encoding,
+            header=resolved.header,
+            keep_default_na=resolved.keep_default_na,
+        )
     except Exception as exc:
         raise TableReadError(f"Failed to read CSV file: {source_path}") from exc
 

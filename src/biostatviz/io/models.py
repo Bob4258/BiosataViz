@@ -8,6 +8,17 @@ import pandas as pd
 
 
 @dataclass(frozen=True, slots=True)
+class LoadingOptions:
+    """Explicit deterministic choices used when loading a table."""
+
+    sheet_name: str | int | None = None
+    header: int | None = 0
+    delimiter: str = ","
+    encoding: str = "utf-8-sig"
+    keep_default_na: bool = False
+
+
+@dataclass(frozen=True, slots=True)
 class LoadedTable:
     """A loaded table plus immutable source metadata."""
 
