@@ -25,7 +25,7 @@ It includes:
 - Detection of duplicate sample-like values only when a candidate identifier column can be identified structurally; the module must report the evidence and must not infer experimental meaning.
 - Risk classification into `INFO`, `WARNING`, and `ACTION_REQUIRED`.
 - A structured report usable by both Agent/MCP and CLI adapters.
-- Optional, explicitly requested safe fixes with a default of no modification.
+- Optional explicitly requested safe loading adjustments, with a default of no automatic adjustment.
 
 It does not include:
 
@@ -56,13 +56,21 @@ Both of these consume the same `InspectionReport`:
 
 ### 3.3 No modification by default
 
-`safe_fixes=False` is the default. Detection and modification are separate concepts.
+Inspection never modifies the source file and never applies fixes. Detection and modification are separate concepts.
 
-Any operation that can change scientific interpretation is never a safe fix.
+A future orchestration/adapter option may allow explicitly enabled safe loading adjustments, but any operation that can change scientific interpretation is never a safe fix.
 
 ### 3.4 Deterministic and testable
 
 Given the same file bytes and inspection options, the core must return the same report. No LLM inference is allowed inside the inspection core.
+
+### 3.5 Inspect raw representation before semantic coercion
+
+Inspection must preserve enough of the raw file representation to detect tokens before pandas or another parser silently assigns meaning to them.
+
+For example, strings such as `NA`, `N/A`, or similar tokens may be interpreted automatically as missing values by common dataframe parsers. BioStatViz must detect and report such raw tokens before they are irreversibly hidden by parser inference.
+
+If Module 01 needs new parser options to preserve user-authored tokens, those changes must be explicit, deterministic, backward-tested, and included in the Module 01.5 implementation plan.
 
 ## 4. Proposed Architecture
 
@@ -70,10 +78,14 @@ Given the same file bytes and inspection options, the core must return the same 
 CSV / XLSX file
       |
       v
+raw preview / workbook inspection
+      |
+      v
 inspect_table()
       |
       +-- format / sheet discovery
       +-- structural checks
+      +-- raw-token checks
       +-- basic quality checks
       +-- issue severity classification
       |
@@ -119,13 +131,13 @@ Proposed public entry point:
 report = inspect_table(
     path,
     sheet_name=None,
-    safe_fixes=False,
 )
 ```
 
 The exact final signature may be refined during the implementation plan, but the public behavior is fixed:
 
-- It does not modify the source file.
+- It never modifies the source file.
+- It never applies safe fixes or cleaning operations.
 - It does not silently mutate returned user data.
 - It can inspect a named Excel sheet when explicitly supplied.
 - When no sheet is supplied, it reports available sheets and any ambiguity rather than guessing when several plausible data sheets exist.
@@ -169,6 +181,7 @@ BLANK_ROW
 MIXED_NUMERIC_TEXT
 PLACEHOLDER_TOKEN_IN_NUMERIC_COLUMN
 POSSIBLE_DUPLICATE_IDENTIFIER
+PARSER_MISSING_VALUE_COERCION_RISK
 ```
 
 Stable codes allow Agent, CLI, tests, and future UIs to consume the same report without parsing human-readable strings.
@@ -201,9 +214,12 @@ sheet_name="Raw"
 header=3
 delimiter=";"
 encoding="utf-8-sig"
+missing_value_policy="preserve"
 ```
 
 Module 01 should only gain loading options that have explicit, deterministic semantics and are covered by tests.
+
+`LoadingOptions` records user decisions; it does not itself imply that BioStatViz may clean data.
 
 ## 6. Detection Rules
 
@@ -250,11 +266,13 @@ If a column is predominantly numeric but contains non-numeric text, emit `WARNIN
 
 No coercion occurs automatically.
 
-### 6.6 Placeholder-like tokens
+### 6.6 Placeholder-like tokens and parser coercion risk
 
 Tokens such as `ND`, `NA`, `N/A`, `-`, or similar values may be reported when they appear inside an otherwise numeric-looking column.
 
-The report must describe them as observed tokens, not assign meaning. In particular, `ND` must not be assumed to mean missing, not detected, or zero.
+The report must describe them as observed raw tokens, not assign meaning. In particular, `ND` must not be assumed to mean missing, not detected, or zero.
+
+If the normal dataframe loading path would automatically reinterpret an observed token as missing or another semantic value, inspection must emit a parser-coercion risk issue. The user or caller must then choose an explicit loading policy.
 
 ### 6.7 Possible duplicate identifiers
 
@@ -311,26 +329,29 @@ if report.requires_user_input:
 
 No prompt should occur unless the user explicitly invokes an interactive CLI helper.
 
-## 8. Safe Fixes Policy
+## 8. Safe Loading Adjustments Policy
 
-Default:
+Default orchestration behavior:
 
 ```text
-safe_fixes = False
+auto_apply_safe_adjustments = False
 ```
 
-The first implementation should keep the safe-fix set intentionally small.
+This flag belongs outside `inspect_table()`—for example in a CLI/Agent orchestration layer—not in the inspection core.
 
-Allowed only when explicitly enabled and deterministic:
+The first implementation should keep automatic adjustments intentionally minimal. A loading decision is safe only when it has deterministic semantics and does not assign biological/statistical meaning.
 
-- applying a delimiter explicitly selected by the user;
-- applying an encoding explicitly selected by the user;
-- applying a header row explicitly selected or confirmed by the user;
-- applying a worksheet explicitly selected or confirmed by the user.
+Potentially allowable when explicitly enabled and either unambiguous or previously confirmed by the user:
 
-These are better understood as explicit loading decisions than semantic data cleaning.
+- applying a delimiter;
+- applying an encoding;
+- applying a header row;
+- applying a worksheet;
+- applying an explicit missing-value preservation policy.
 
-Not allowed as automatic safe fixes:
+Every applied adjustment must be recorded so the final load is reproducible.
+
+Not allowed as automatic safe adjustments:
 
 - `ND` -> `NaN`;
 - `-` -> `NaN`;
@@ -380,7 +401,8 @@ Required test classes:
 
 ### Basic quality inspection
 
-- numeric column containing `ND` produces `WARNING` and preserves the token;
+- numeric column containing `ND` produces `WARNING` and preserves the raw token in inspection evidence;
+- raw `NA`/`N/A` tokens that would be swallowed by parser defaults are detected before dataframe coercion;
 - mixed numeric/text values produce structured evidence;
 - missing values are reported without imputation;
 - repeated identifier-like values produce a conservative warning;
@@ -392,7 +414,8 @@ Required test classes:
 - default inspection does not mutate loaded data;
 - no `input()` or LLM dependency exists in the core;
 - `ACTION_REQUIRED` sets `requires_user_input=True`;
-- `INFO` and `WARNING` alone do not require user input.
+- `INFO` and `WARNING` alone do not require user input;
+- parser-default coercion cannot hide a raw scientific token without an inspection warning or an explicit loading policy.
 
 ### Adapter contract
 
@@ -407,12 +430,13 @@ Module 01.5 is complete when:
 2. Common imperfect-table structures are surfaced as structured issues.
 3. `INFO`, `WARNING`, and `ACTION_REQUIRED` behavior is covered by tests.
 4. Ambiguous structure is never silently resolved.
-5. Placeholder tokens and mixed types are never silently coerced.
+5. Placeholder tokens and mixed types are never silently coerced without detection and an explicit loading policy.
 6. The inspection core has no interactive or LLM dependency.
 7. Agent/MCP and CLI can consume the same report model.
-8. Default behavior makes no data modifications.
+8. Default behavior makes no data modifications or automatic loading adjustments.
 9. Existing Module 01 tests continue to pass.
-10. The implementation remains clearly separated from Module 02 statistical profiling.
+10. Any required Module 01 parser-option changes are explicit and regression-tested.
+11. The implementation remains clearly separated from Module 02 statistical profiling.
 
 ## 12. Deferred Work
 
