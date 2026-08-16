@@ -16,7 +16,7 @@ def test_load_csv_preserves_values_columns_and_missing_data(tmp_path: Path):
 
     loaded = load_table(csv_path)
 
-    expected = pd.read_csv(csv_path)
+    expected = pd.read_csv(csv_path, keep_default_na=False)
     pd.testing.assert_frame_equal(loaded.data, expected)
     assert loaded.source_path == csv_path.resolve()
     assert loaded.source_format == "csv"
