@@ -95,4 +95,4 @@ complex sheet C -> 3 regions
 - [ ] **Step 3: Re-run the previously validated widely separated side-by-side workbook** and verify its separated horizontal tables remain distinct.
 - [ ] **Step 4: Verify both uploaded source workbooks are byte-identical before/after inspection.**
 - [ ] **Step 5: Scan tracked source/tests/docs for real workbook names, article identifiers, Figure labels, and experiment labels; require zero private-fixture leakage.**
-- [ ] **Step 6: Commit only the intended source, anonymous tests, plan/spec, and any necessary documentation changes to `feature/table-inspection`.
+- [ ] **Step 6: Commit only the intended source, anonymous tests, plan/spec, and any necessary documentation changes to `feature/table-inspection`.**
